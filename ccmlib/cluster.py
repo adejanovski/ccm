@@ -463,31 +463,29 @@ class Cluster(object):
                     time.sleep(1)
 
                 started.append((node, p, mark))
-
-        if no_wait:
-            time.sleep(2)  # waiting 2 seconds to check for early errors and for the pid to be set
-        else:
-            for node, p, mark in started:
-                try:
-                    start_message = "Listening for thrift clients..." if self.cassandra_version() < "2.2" else "Starting listening for CQL clients"
-                    node.watch_log_for(start_message, timeout=kwargs.get('timeout',60), process=p, verbose=verbose, from_mark=mark)
-                except RuntimeError:
-                    return None
+                if no_wait:
+                    time.sleep(2)  # waiting 2 seconds to check for early errors and for the pid to be set
+                else:
+                    try:
+                        start_message = "Listening for thrift clients..." if self.cassandra_version() < "2.2" else "Starting listening for CQL clients"
+                        node.watch_log_for(start_message, timeout=kwargs.get('timeout',60), process=p, verbose=verbose, from_mark=mark)
+                    except RuntimeError:
+                        return None
+                
+                    if wait_other_notice:
+                        for (node, _, mark), (other_node, _, _) in itertools.permutations(started, 2):
+                            node.watch_log_for_alive(other_node, from_mark=mark)
+                    
+                    if wait_for_binary_proto:
+                        for node, p, mark in started:
+                            node.wait_for_binary_interface(process=p, verbose=verbose, from_mark=mark)
+        
 
         self.__update_pids(started)
 
         for node, p, _ in started:
             if not node.is_running():
                 raise NodeError("Error starting {0}.".format(node.name), p)
-
-        if not no_wait:
-            if wait_other_notice:
-                for (node, _, mark), (other_node, _, _) in itertools.permutations(started, 2):
-                    node.watch_log_for_alive(other_node, from_mark=mark)
-
-            if wait_for_binary_proto:
-                for node, p, mark in started:
-                    node.wait_for_binary_interface(process=p, verbose=verbose, from_mark=mark)
 
         extension.post_cluster_start(self)
 
